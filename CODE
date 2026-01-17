@@ -1,0 +1,207 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <DHT.h>
+
+#define DHTPIN 4
+#define DHTTYPE DHT11   // Change to DHT22 if needed
+#define LED_PIN 2
+
+DHT dht(DHTPIN, DHTTYPE);
+WebServer server(80);
+
+// ESP32 Access Point credentials
+const char* ssid = "ESP32_Dashboard";
+const char* password = "12345678";
+
+bool ledState = false;
+
+// HTML Dashboard
+String webpage = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 IoT Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: #333;
+    }
+
+    header {
+      background: rgba(255,255,255,0.15);
+      padding: 20px;
+      text-align: center;
+      color: white;
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      padding: 25px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 15px;
+      padding: 25px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+      text-align: center;
+    }
+
+    .label {
+      font-size: 18px;
+      color: #666;
+    }
+
+    .value {
+      font-size: 40px;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+
+    .temp {
+      color: #e74c3c;
+    }
+
+    .hum {
+      color: #3498db;
+    }
+
+    .btn {
+      padding: 15px;
+      width: 100%;
+      font-size: 18px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    .btn-off {
+      background: #2ecc71;
+      color: white;
+    }
+
+    .btn-on {
+      background: #e74c3c;
+      color: white;
+    }
+
+    footer {
+      text-align: center;
+      padding: 15px;
+      font-size: 14px;
+      color: white;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+
+<body>
+
+<header>ESP32 IoT Web Dashboard</header>
+
+<div class="container">
+  <div class="card">
+    <div class="label">Temperature</div>
+    <div id="temp" class="value temp">-- °C</div>
+  </div>
+
+  <div class="card">
+    <div class="label">Humidity</div>
+    <div id="hum" class="value hum">-- %</div>
+  </div>
+
+  <div class="card">
+    <div class="label">Device Control</div>
+    <button id="ledBtn" class="btn btn-off" onclick="toggleLED()">LED OFF</button>
+  </div>
+</div>
+
+<footer>
+  Powered by ESP32 • Real-Time IoT Monitoring
+</footer>
+
+<script>
+let ledState = false;
+
+setInterval(() => {
+  fetch("/sensor")
+    .then(response => response.json())
+    .then(data => {
+      document.getElementById("temp").innerHTML = data.temp + " °C";
+      document.getElementById("hum").innerHTML = data.hum + " %";
+    });
+}, 2000);
+
+function toggleLED() {
+  fetch("/led");
+  ledState = !ledState;
+
+  let btn = document.getElementById("ledBtn");
+  if (ledState) {
+    btn.innerHTML = "LED ON";
+    btn.className = "btn btn-on";
+  } else {
+    btn.innerHTML = "LED OFF";
+    btn.className = "btn btn-off";
+  }
+}
+</script>
+
+</body>
+</html>
+)rawliteral";
+
+
+void handleRoot() {
+  server.send(200, "text/html", webpage);
+}
+
+void handleSensor() {
+  float temp = dht.readTemperature();
+  float hum = dht.readHumidity();
+
+  String json = "{";
+  json += "\"temp\":" + String(temp) + ",";
+  json += "\"hum\":" + String(hum);
+  json += "}";
+
+  server.send(200, "application/json", json);
+}
+
+void handleLED() {
+  ledState = !ledState;
+  digitalWrite(LED_PIN, ledState);
+  server.send(200, "text/plain", "OK");
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+  dht.begin();
+
+  // Start ESP32 Access Point
+  WiFi.softAP(ssid, password);
+
+  Serial.println("ESP32 AP Started");
+  Serial.println(WiFi.softAPIP());
+
+  server.on("/", handleRoot);
+  server.on("/sensor", handleSensor);
+  server.on("/led", handleLED);
+
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+}
+
